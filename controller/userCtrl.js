@@ -1,6 +1,9 @@
 const { generateToken } = require("../config/jwtToken");
 const User = require("../models/userModal");
 const asynchandler = require("express-async-handler");
+const validateMongoDBID = require("../utils/validateMOngodbid");
+const { generateRefreshToken } = require("../config/refreshToken");
+const jwt = require("jsonwebtoken");
 //Create a user in db using userModal
 const createUser = asynchandler(async (req, res) => {
   const email = req.body.emial;
@@ -20,27 +23,88 @@ const createUser = asynchandler(async (req, res) => {
 //Login User
 const loginUser = asynchandler(async (req, res) => {
   const { email, password } = req.body;
-  //check if user exist or not
-  const findUser = await User.findOne({ email });
-  if (findUser && (await findUser.isPasswordMatch(password))) {
-    const responseObject = {
-      _id: findUser._id,
-      firstname: findUser.firstname,
-      lastname: findUser.lastname,
-      email: findUser.email,
-      mobile: findUser.mobile,
-      token: generateToken(findUser._id),
-      role: findUser?.role,
-      cart: findUser?.cart,
-      address: findUser?.address,
-      wishList: findUser?.wishList,
-    };
-    res.json(responseObject);
-  } else {
-    throw new Error("Invalid Credentials");
+  try {
+    //check if user exist or not
+    const findUser = await User.findOne({ email });
+    if (findUser && (await findUser.isPasswordMatch(password))) {
+      const refreshToken = await generateRefreshToken(findUser._id);
+      const updateUser = await User.findOneAndUpdate(
+        findUser?._id,
+        {
+          refreshToken: refreshToken,
+        },
+        { new: true }
+      );
+
+      const responseObject = {
+        _id: findUser._id,
+        firstname: findUser.firstname,
+        lastname: findUser.lastname,
+        email: findUser.email,
+        mobile: findUser.mobile,
+        token: generateToken(findUser._id),
+        role: findUser?.role,
+        cart: findUser?.cart,
+        address: findUser?.address,
+        wishList: findUser?.wishList,
+      };
+      res.cookie("refreshToken", refreshToken, {
+        httpOnly: true,
+        maxAge: 72 * 60 * 60 * 100,
+      });
+      res.json(responseObject);
+    } else {
+      throw new Error("Invalid Credentials");
+    }
+  } catch (error) {
+    throw new Error(error);
   }
 });
 
+//Handle Refresh Token
+const handleRefreshTOken = asynchandler(async (req, res) => {
+  const cookie = req.cookies;
+  if (!cookie) {
+    throw new Error("No Refresh TOken in Cookies");
+  }
+  const refreshToken = cookie.refreshToken;
+  const user = await User.findOne({ refreshToken });
+  if (!user) {
+    throw new Error("No Refresh token present in db or not match");
+  }
+  jwt.verify(refreshToken, process.env.JWT_SECRET, (err, decoded) => {
+    if (err || user.id !== decoded.id) {
+      throw new Error("There is something wrong with refresh token");
+    }
+    const accessToken = generateToken(user._id);
+    res.json({ accessToken });
+  });
+});
+
+//Logout API
+const logOut = asynchandler(async (req, res) => {
+  const cookie = req.cookies;
+  if (!cookie) {
+    throw new Error("No Refresh TOken in Cookies");
+  }
+  const refreshToken = cookie.refreshToken;
+  const user = await User.findOne({refreshToken});
+  if (!user) {
+    res.clearCookie("refreshToken", {
+      httpOnly: true,
+      secure: true,
+    });
+    return res.sendStatus(204); //forbidden
+  }
+  await User.findOneAndUpdate({ refreshToken: refreshToken }, {
+    refreshToken: "",
+  });
+  res.clearCookie("refreshToken", {
+    httpOnly: true,
+    secure: true,
+  });
+  return res.sendStatus(204); //forbidden
+});
 //Get all user
 const getAllUser = asynchandler(async (req, res) => {
   try {
@@ -67,7 +131,8 @@ const getAllUser = asynchandler(async (req, res) => {
 //Get a single user
 
 const getUser = asynchandler(async (req, res) => {
-  const { id } = req?.user;
+  const { id } = req?.params;
+  validateMongoDBID(id);
   try {
     const getaUser = await User.findById(id);
     const responseObj = {
@@ -90,6 +155,8 @@ const getUser = asynchandler(async (req, res) => {
 //Delete User
 const deleteUser = asynchandler(async (req, res) => {
   const { id } = req.params;
+  validateMongoDBID(id);
+
   try {
     const deleteAUser = await User.findByIdAndDelete(id);
     const responseObj = {
@@ -108,6 +175,7 @@ const deleteUser = asynchandler(async (req, res) => {
 //UpdateAUser
 const updateUser = asynchandler(async (req, res) => {
   const { id } = req.user;
+  validateMongoDBID(id);
   const { firstname, lastname, email, mobile, role } = req.body;
   const updatedValue = {
     firstname: firstname || "",
@@ -126,6 +194,8 @@ const updateUser = asynchandler(async (req, res) => {
 const blockedUser = asynchandler(async (req, res) => {
   const { id } = req.params;
   const { isBlocked } = req.body;
+
+  validateMongoDBID(id);
 
   // Check if isBlocked is present in the request body
   if (isBlocked === undefined || isBlocked === null) {
@@ -156,4 +226,6 @@ module.exports = {
   deleteUser,
   updateUser,
   blockedUser,
+  handleRefreshTOken,
+  logOut,
 };

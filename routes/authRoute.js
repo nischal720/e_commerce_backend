@@ -1,3 +1,10 @@
+/**
+ * @swagger
+ * tags:
+ *   name: Authentication
+ *   description: API endpoints for user authentication
+ */
+
 const express = require("express");
 const router = express.Router();
 
@@ -11,10 +18,15 @@ const {
   blockedUser,
   handleRefreshTOken,
   logOut,
+  updatePassword,
+  forgotPasswordToken,
 } = require("../controller/userCtrl");
 const { authMiddleWare, isAdmin } = require("../middlewares/authMiddleware");
 
 router.post("/register", createUser);
+router.put("/password", authMiddleWare, updatePassword);
+router.post("/forgot-password-token", forgotPasswordToken);
+
 router.post("/login", loginUser);
 router.get("/logout", logOut);
 

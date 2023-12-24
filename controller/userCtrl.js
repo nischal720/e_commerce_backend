@@ -4,6 +4,9 @@ const asynchandler = require("express-async-handler");
 const validateMongoDBID = require("../utils/validateMOngodbid");
 const { generateRefreshToken } = require("../config/refreshToken");
 const jwt = require("jsonwebtoken");
+const comparePasswords = require("../utils/compareUserPassword");
+const sendEmail = require("./emailController");
+
 //Create a user in db using userModal
 const createUser = asynchandler(async (req, res) => {
   const email = req.body.emial;
@@ -85,10 +88,10 @@ const handleRefreshTOken = asynchandler(async (req, res) => {
 const logOut = asynchandler(async (req, res) => {
   const cookie = req.cookies;
   if (!cookie) {
-    throw new Error("No Refresh TOken in Cookies");
+    throw new Error("No Refresh Token in Cookies");
   }
   const refreshToken = cookie.refreshToken;
-  const user = await User.findOne({refreshToken});
+  const user = await User.findOne({ refreshToken });
   if (!user) {
     res.clearCookie("refreshToken", {
       httpOnly: true,
@@ -96,15 +99,19 @@ const logOut = asynchandler(async (req, res) => {
     });
     return res.sendStatus(204); //forbidden
   }
-  await User.findOneAndUpdate({ refreshToken: refreshToken }, {
-    refreshToken: "",
-  });
+  await User.findOneAndUpdate(
+    { refreshToken: refreshToken },
+    {
+      refreshToken: "",
+    }
+  );
   res.clearCookie("refreshToken", {
     httpOnly: true,
     secure: true,
   });
   return res.sendStatus(204); //forbidden
 });
+
 //Get all user
 const getAllUser = asynchandler(async (req, res) => {
   try {
@@ -218,6 +225,58 @@ const blockedUser = asynchandler(async (req, res) => {
   }
 });
 
+//Update Password
+const updatePassword = asynchandler(async (req, res) => {
+  const { id } = req.user;
+  const { oldPassword, newPassword } = req.body;
+
+  validateMongoDBID(id);
+  if (!oldPassword || !newPassword) {
+    throw new Error("Both oldPassword and newPassword are required");
+  }
+
+  const user = await User.findById(id);
+
+  // Assuming comparePasswords is a function that compares the old password with the stored password
+  const isPasswordValid = await comparePasswords(oldPassword, user.password);
+
+  if (isPasswordValid) {
+    user.password = newPassword;
+    await user.save(); // Fix: Use await user.save() instead of await User.save()
+    res.clearCookie("refreshToken", {
+      httpOnly: true,
+      secure: true,
+    });
+    res.json({ message: "Password updated successfully" });
+  } else {
+    throw new Error("Invalid old password");
+  }
+});
+
+//Forgot Password
+const forgotPasswordToken = asynchandler(async (req, res) => {
+  const { email } = req.body;
+  const user = await User.findOne({email});
+  
+  if (!user) throw new Error("User not found with this email");
+  try {
+    const token = await user.createPasswordResetToekn();
+    await user.save();
+    const resetURL = `Hi, Please follow this link to reset your password. This link is valid until 10 minutes from now. <a href='http://localhost:5000/api/user/reset-password/${token}'>Click Here</a>`;
+
+    const data = {
+      to: email,
+      text: "Hi,user",
+      subject: "Forgot Password",
+      html: resetURL,
+    };
+    sendEmail(data);
+    res.json(token);
+  } catch (error) {
+    throw new Error(error);
+  }
+});
+
 module.exports = {
   createUser,
   loginUser,
@@ -228,4 +287,6 @@ module.exports = {
   blockedUser,
   handleRefreshTOken,
   logOut,
+  updatePassword,
+  forgotPasswordToken,
 };

@@ -47,6 +47,11 @@ var userSchema = new mongoose.Schema(
     refreshToken: {
       type: String,
     },
+    resetPinOTP: {
+      type: Number,
+      min: 100000,
+      max: 999999,
+    },
     passwordChangeAt: Date,
     passwordResetToken: String,
     passwordResetExpires: Date,

@@ -256,22 +256,31 @@ const updatePassword = asynchandler(async (req, res) => {
 //Forgot Password
 const forgotPasswordToken = asynchandler(async (req, res) => {
   const { email } = req.body;
-  const user = await User.findOne({email});
-  
+  const user = await User.findOne({ email });
+
   if (!user) throw new Error("User not found with this email");
+
   try {
-    const token = await user.createPasswordResetToekn();
+    // Generate a random 6-digit number for resetPinOTP
+    const resetPinOTP = Math.floor(100000 + Math.random() * 900000);
+    user.resetPinOTP = resetPinOTP;
+    user.passwordChangeAt = Date.now() + 60 * 1000; // Set expiration to 60 seconds
     await user.save();
-    const resetURL = `Hi, Please follow this link to reset your password. This link is valid until 10 minutes from now. <a href='http://localhost:5000/api/user/reset-password/${token}'>Click Here</a>`;
+
+    // Now you can use resetPinOTP in your email or any other way as needed
+    const resetURL = `Hi, Please follow this link to reset your password. This link is valid until 60 seconds from now. <a href='http://localhost:5000/api/user/reset-password/${resetPinOTP}'>Click Here</a>`;
 
     const data = {
       to: email,
-      text: "Hi,user",
+      text: "Hi, user",
       subject: "Forgot Password",
       html: resetURL,
     };
+
+    // Assuming sendEmail is a function that sends an email
     sendEmail(data);
-    res.json(token);
+
+    res.json({ message: "Reset PIN OTP sent successfully." });
   } catch (error) {
     throw new Error(error);
   }
